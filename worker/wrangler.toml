@@ -1,0 +1,12 @@
+name = "xiaomi-powerbank"
+compatibility_date = "2026-07-09"
+workers_dev = false
+
+routes = [
+  { pattern = "xiaomi-powerbank.leak.moe/*", zone_name = "leak.moe" }
+]
+
+[assets]
+directory = "../dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"

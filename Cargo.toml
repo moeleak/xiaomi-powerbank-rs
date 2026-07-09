@@ -1,0 +1,46 @@
+[workspace]
+members = [
+  "crates/powerbank-core",
+  "crates/powerbank-hid",
+  "crates/powerbank-webhid",
+  "crates/xiaomi-pb-cli",
+  "crates/xiaomi-pb-gui",
+]
+resolver = "3"
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.88"
+license = "MIT"
+authors = ["MoeLeak"]
+repository = "https://github.com/moeleak/xiaomi-powerbank-rs"
+
+[workspace.dependencies]
+anyhow = "1.0"
+async-trait = "0.1"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+clap = { version = "4.5", features = ["derive"] }
+clap_complete = "4.5"
+futures = "0.3"
+hex = "0.4"
+hidapi = "2.6.6"
+iced = "0.14"
+js-sys = "0.3.103"
+material-ui-rs = { version = "0.4.1", default-features = false, features = ["canvas", "svg", "crisp"] }
+owo-colors = "4.2"
+powerbank-core = { path = "crates/powerbank-core" }
+powerbank-hid = { path = "crates/powerbank-hid" }
+powerbank-webhid = { path = "crates/powerbank-webhid" }
+rustyline = "18.0.1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+shlex = "1.3"
+thiserror = "2.0"
+wasm-bindgen = "0.2.106"
+wasm-bindgen-futures = "0.4.56"
+web-sys = "0.3.103"
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+strip = true

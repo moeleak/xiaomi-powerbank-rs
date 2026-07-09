@@ -1,0 +1,18 @@
+[package]
+name = "powerbank-core"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Core Xiaomi power bank HID protocol implementation"
+
+[dependencies]
+async-trait.workspace = true
+chrono.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+futures.workspace = true
+

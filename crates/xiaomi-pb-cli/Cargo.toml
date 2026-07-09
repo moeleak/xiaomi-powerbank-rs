@@ -1,0 +1,25 @@
+[package]
+name = "xiaomi-pb-cli"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "CLI for Xiaomi power banks"
+
+[[bin]]
+name = "xiaomi-pb"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+clap_complete.workspace = true
+futures.workspace = true
+owo-colors.workspace = true
+powerbank-core.workspace = true
+powerbank-hid.workspace = true
+rustyline.workspace = true
+shlex.workspace = true
+
