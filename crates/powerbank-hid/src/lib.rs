@@ -31,7 +31,7 @@ impl HidTransport {
         let api = HidApi::new().map_err(to_transport_error)?;
         let info = find_device(&api).ok_or_else(|| {
             PowerBankError::Transport(
-                "未找到小米充电宝设备，请连续按 8 次按钮进入数据传输模式后连接 USB".to_owned(),
+                "No Xiaomi power bank HID device found. Press the power bank button 8 times to enter data transfer mode, then connect it over USB.".to_owned(),
             )
         })?;
         Self::open_info(api, &info)
@@ -62,7 +62,7 @@ impl HidTransport {
     fn open_info(api: HidApi, info: &NativeDeviceInfo) -> Result<Self> {
         let device = api.open_path(&info.path).map_err(|err| {
             PowerBankError::Transport(format!(
-                "无法打开设备 {}: {err}. Linux 可能需要 udev 规则，macOS 可能需要允许输入监控",
+                "Failed to open device {}: {err}. Linux may need udev rules; macOS may need Input Monitoring permission.",
                 info.path_display()
             ))
         })?;

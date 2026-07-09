@@ -48,11 +48,11 @@ enum Page {
 }
 
 const DESTINATIONS: [navigation::Destination<Page>; 5] = [
-    navigation::Destination::new(Page::Overview, "dashboard", "概览"),
-    navigation::Destination::new(Page::Battery, "battery_full", "电池"),
+    navigation::Destination::new(Page::Overview, "dashboard", "Overview"),
+    navigation::Destination::new(Page::Battery, "battery_full", "Battery"),
     navigation::Destination::new(Page::Qi2, "settings_input_antenna", "Qi2"),
     navigation::Destination::new(Page::Raw, "terminal", "Raw"),
-    navigation::Destination::new(Page::Logs, "article", "日志"),
+    navigation::Destination::new(Page::Logs, "article", "Logs"),
 ];
 
 #[derive(Debug)]
@@ -117,19 +117,19 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
         Message::Refresh => {
             app.loading = true;
             app.last_error = None;
-            app.log("开始读取设备信息");
+            app.log("Reading device information");
             Task::perform(load_snapshot(), Message::SnapshotLoaded)
         }
         Message::SnapshotLoaded(result) => {
             app.loading = false;
             match result {
                 Ok(snapshot) => {
-                    app.log("设备信息读取完成");
+                    app.log("Device information loaded");
                     app.snapshot = Some(snapshot);
                     app.last_error = None;
                 }
                 Err(err) => {
-                    app.log(format!("设备信息读取失败: {err}"));
+                    app.log(format!("Failed to read device information: {err}"));
                     app.last_error = Some(err);
                 }
             }
@@ -139,9 +139,9 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
             app.loading = true;
             app.last_error = None;
             app.log(if enable {
-                "请求开启 Qi2.2"
+                "Requesting Qi2.2 enable"
             } else {
-                "请求关闭 Qi2.2"
+                "Requesting Qi2.2 disable"
             });
             Task::perform(set_qi2_and_reload(enable), Message::SnapshotLoaded)
         }
@@ -153,19 +153,19 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
             app.loading = true;
             app.raw_result = None;
             app.last_error = None;
-            app.log(format!("发送 Raw 命令: {}", app.raw_input));
+            app.log(format!("Sending raw command: {}", app.raw_input));
             Task::perform(send_raw(app.raw_input.clone()), Message::RawLoaded)
         }
         Message::RawLoaded(result) => {
             app.loading = false;
             match result {
                 Ok(output) => {
-                    app.log("Raw 命令完成");
+                    app.log("Raw command completed");
                     app.raw_result = Some(output);
                     app.last_error = None;
                 }
                 Err(err) => {
-                    app.log(format!("Raw 命令失败: {err}"));
+                    app.log(format!("Raw command failed: {err}"));
                     app.last_error = Some(err);
                 }
             }
@@ -218,7 +218,10 @@ fn overview_page(app: &App) -> material::Element<'_, Message> {
     }
 
     page::surface(
-        page::header("概览", "读取设备状态、充电宝型号、电量和 Qi2.2 状态"),
+        page::header(
+            "Overview",
+            "Read device state, model, battery level, and Qi2.2 status",
+        ),
         page::sections(sections),
     )
     .into()
@@ -240,11 +243,13 @@ fn battery_page(app: &App) -> material::Element<'_, Message> {
             sections.push(cell_temp_model_section(model));
         }
     } else {
-        sections.push(empty_section("还没有设备数据，先刷新读取一次。"));
+        sections.push(empty_section(
+            "No device data yet. Refresh once to read the device.",
+        ));
     }
 
     page::surface(
-        page::header("电池", "电池组、电芯和编号信息"),
+        page::header("Battery", "Battery pack, cell readings, and cell IDs"),
         page::sections(sections),
     )
     .into()
@@ -256,14 +261,14 @@ fn qi2_page(app: &App) -> material::Element<'_, Message> {
         if let Some(qi2) = &snapshot.qi2 {
             sections.push(qi2_section(qi2, app.loading));
         } else {
-            sections.push(empty_section("设备没有返回 Qi2.2 状态。"));
+            sections.push(empty_section("The device did not return Qi2.2 status."));
         }
     } else {
-        sections.push(empty_section("刷新后才能显示 Qi2.2 状态。"));
+        sections.push(empty_section("Refresh before viewing Qi2.2 status."));
     }
 
     page::surface(
-        page::header("Qi2.2", "查询或切换无线充电能力"),
+        page::header("Qi2.2", "Query or switch wireless charging support"),
         page::sections(sections),
     )
     .into()
@@ -273,19 +278,22 @@ fn raw_page(app: &App) -> material::Element<'_, Message> {
     use material::widget::button::ButtonVariant;
 
     let input = text_input::outlined("Raw hex", &app.raw_input).on_input(Message::RawChanged);
-    let send = button::button("发送", ButtonVariant::Filled).on_press(Message::SendRaw);
+    let send = button::button("Send", ButtonVariant::Filled).on_press(Message::SendRaw);
     let mut stack = vec![input.into(), send.into()];
 
     if let Some(result) = &app.raw_result {
         stack.push(material::text::body_medium(result.clone()).into());
     }
     if let Some(err) = &app.last_error {
-        stack.push(material::text::body_medium(format!("错误: {err}")).into());
+        stack.push(material::text::body_medium(format!("Error: {err}")).into());
     }
 
     page::surface(
-        page::header("Raw", "发送 32 字节 HID 原始帧并显示响应"),
-        page::sections([page::section("命令", page::stack(stack)).into()]),
+        page::header(
+            "Raw",
+            "Send a 32-byte raw HID frame and inspect the response",
+        ),
+        page::sections([page::section("Command", page::stack(stack)).into()]),
     )
     .into()
 }
@@ -293,9 +301,9 @@ fn raw_page(app: &App) -> material::Element<'_, Message> {
 fn logs_page(app: &App) -> material::Element<'_, Message> {
     use material::widget::button::ButtonVariant;
 
-    let clear = button::button("清空", ButtonVariant::Outlined).on_press(Message::ClearLog);
+    let clear = button::button("Clear", ButtonVariant::Outlined).on_press(Message::ClearLog);
     let lines = if app.logs.is_empty() {
-        vec![material::text::body_medium("暂无日志").into()]
+        vec![material::text::body_medium("No logs").into()]
     } else {
         app.logs
             .iter()
@@ -305,10 +313,10 @@ fn logs_page(app: &App) -> material::Element<'_, Message> {
     };
 
     page::surface(
-        page::header("日志", "本地操作日志和错误信息"),
+        page::header("Logs", "Local operation log and errors"),
         page::sections([
-            page::section("操作", clear).into(),
-            page::section("记录", page::stack(lines)).into(),
+            page::section("Actions", clear).into(),
+            page::section("Entries", page::stack(lines)).into(),
         ]),
     )
     .into()
@@ -316,46 +324,46 @@ fn logs_page(app: &App) -> material::Element<'_, Message> {
 
 fn status_section(app: &App) -> material::Element<'_, Message> {
     let status = if app.loading {
-        "正在通信..."
+        "Communicating..."
     } else if app.snapshot.is_some() {
-        "已读取"
+        "Loaded"
     } else {
-        "未连接"
+        "Disconnected"
     };
 
-    let mut rows = vec![kv("状态", status)];
-    rows.push(kv("运行形态", platform_label()));
+    let mut rows = vec![kv("Status", status)];
+    rows.push(kv("Runtime", platform_label()));
     if let Some(error) = &app.last_error {
-        rows.push(kv("最近错误", error));
+        rows.push(kv("Last error", error));
     }
 
-    page::section("状态", page::stack(rows)).into()
+    page::section("Status", page::stack(rows)).into()
 }
 
 fn actions_section(app: &App) -> material::Element<'_, Message> {
     use material::widget::button::ButtonVariant;
 
-    let label = if app.loading { "读取中" } else { "刷新" };
+    let label = if app.loading { "Loading" } else { "Refresh" };
     let refresh = if app.loading {
         button::button(label, ButtonVariant::Filled)
     } else {
         button::button(label, ButtonVariant::Filled).on_press(Message::Refresh)
     };
 
-    page::section("操作", page::row([refresh.into()])).into()
+    page::section("Actions", page::row([refresh.into()])).into()
 }
 
 fn device_section(info: &HelloInfo) -> material::Element<'_, Message> {
     page::section(
-        "设备",
+        "Device",
         page::stack([
             kv(
-                "产品",
+                "Product",
                 format!("{} ({})", info.device_name, info.device_model),
             ),
-            kv("型号 ID", info.model_id.to_string()),
-            kv("序列号", info.serial_number.clone()),
-            kv("充电状态", info.charging_status.to_string()),
+            kv("Model ID", info.model_id.to_string()),
+            kv("Serial", info.serial_number.clone()),
+            kv("Power state", info.charging_status.to_string()),
         ]),
     )
     .into()
@@ -363,13 +371,13 @@ fn device_section(info: &HelloInfo) -> material::Element<'_, Message> {
 
 fn battery_summary_section(battery: &BatteryInfo) -> material::Element<'_, Message> {
     page::section(
-        "电池摘要",
+        "Battery summary",
         page::stack([
-            kv("电量", format!("{}%", battery.level_pct)),
-            kv("循环", format!("{} 次", battery.cycle_count)),
-            kv("温度", format!("{}°C", battery.temperature_c)),
+            kv("Level", format!("{}%", battery.level_pct)),
+            kv("Cycles", battery.cycle_count.to_string()),
+            kv("Temperature", format!("{}°C", battery.temperature_c)),
             kv(
-                "电压/电流",
+                "Voltage / current",
                 format!("{}mV / {}mA", battery.voltage_mv, battery.current_ma),
             ),
         ]),
@@ -379,23 +387,23 @@ fn battery_summary_section(battery: &BatteryInfo) -> material::Element<'_, Messa
 
 fn battery_detail_section(battery: &BatteryInfo) -> material::Element<'_, Message> {
     page::section(
-        "电池组",
+        "Battery pack",
         page::stack([
-            kv("状态", status_text(battery.success, battery.status_code)),
+            kv("Status", status_text(battery.success, battery.status_code)),
             kv(
-                "激活",
+                "Activation",
                 match battery.activated {
-                    Some(true) => "已激活".to_owned(),
-                    Some(false) => "未激活".to_owned(),
-                    None => "保留".to_owned(),
+                    Some(true) => "Activated".to_owned(),
+                    Some(false) => "Not activated".to_owned(),
+                    None => "Reserved".to_owned(),
                 },
             ),
-            kv("健康度", battery.health.to_string()),
-            kv("充放电", battery.charge_state.to_string()),
-            kv("故障类型", battery.fault_type.to_string()),
-            kv("错误值", battery.error_value.to_string()),
-            kv("历史错误", battery.history_errors.to_string()),
-            kv("电芯数量", battery.cell_count.to_string()),
+            kv("Health", battery.health.to_string()),
+            kv("Charge state", battery.charge_state.to_string()),
+            kv("Fault type", battery.fault_type.to_string()),
+            kv("Error value", battery.error_value.to_string()),
+            kv("History errors", battery.history_errors.to_string()),
+            kv("Cell count", battery.cell_count.to_string()),
         ]),
     )
     .into()
@@ -403,7 +411,11 @@ fn battery_detail_section(battery: &BatteryInfo) -> material::Element<'_, Messag
 
 fn cells_section(status: &CellStatus) -> material::Element<'_, Message> {
     if !status.success {
-        return page::section("电芯", kv("状态", status_text(false, status.status_code))).into();
+        return page::section(
+            "Cells",
+            kv("Status", status_text(false, status.status_code)),
+        )
+        .into();
     }
 
     let rows = status
@@ -413,7 +425,7 @@ fn cells_section(status: &CellStatus) -> material::Element<'_, Message> {
             let temp = cell
                 .temperature_c
                 .map(|value| format!("{value}°C"))
-                .unwrap_or_else(|| "无传感器".to_owned());
+                .unwrap_or_else(|| "No sensor".to_owned());
             kv(
                 format!("#{}", cell.index),
                 format!("{temp}  {}mV  {}mA", cell.voltage_mv, cell.current_ma),
@@ -421,7 +433,7 @@ fn cells_section(status: &CellStatus) -> material::Element<'_, Message> {
         })
         .collect::<Vec<_>>();
 
-    page::section("电芯状态", page::stack(rows)).into()
+    page::section("Cell status", page::stack(rows)).into()
 }
 
 fn battery_ids_section(snapshot: &DeviceSnapshot) -> material::Element<'_, Message> {
@@ -431,28 +443,28 @@ fn battery_ids_section(snapshot: &DeviceSnapshot) -> material::Element<'_, Messa
         .map(|id| {
             let mut parts = Vec::new();
             if !id.battery_id.is_empty() {
-                parts.push(format!("编码={}", id.battery_id));
+                parts.push(format!("id={}", id.battery_id));
             }
             if let Some(date) = &id.production_date {
-                parts.push(format!("生产日期={date}"));
+                parts.push(format!("production_date={date}"));
             }
             if let Some(enterprise) = &id.enterprise_code {
-                parts.push(format!("厂商代码={enterprise}"));
+                parts.push(format!("vendor_code={enterprise}"));
             }
             kv(format!("#{}", id.cell_index), parts.join("  "))
         })
         .collect::<Vec<_>>();
 
-    page::section("电芯编号", page::stack(rows)).into()
+    page::section("Cell IDs", page::stack(rows)).into()
 }
 
 fn cell_temp_model_section(model: &CellTempModel) -> material::Element<'_, Message> {
     page::section(
-        "温度阈值与型号",
+        "Temperature range and model",
         page::stack([
-            kv("电芯型号", model.battery_model.clone()),
+            kv("Cell model", model.battery_model.clone()),
             kv(
-                "温度阈值",
+                "Temperature range",
                 format!("{}°C ~ {}°C", model.low_temp, model.high_temp),
             ),
         ]),
@@ -464,25 +476,25 @@ fn qi2_section(status: &Qi2Status, loading: bool) -> material::Element<'_, Messa
     use material::widget::button::ButtonVariant;
 
     let current = if status.enabled {
-        "已开启"
+        "Enabled"
     } else {
-        "未开启"
+        "Disabled"
     };
     let enable = if loading || status.enabled {
-        button::button("开启", ButtonVariant::Filled)
+        button::button("Enable", ButtonVariant::Filled)
     } else {
-        button::button("开启", ButtonVariant::Filled).on_press(Message::SetQi2(true))
+        button::button("Enable", ButtonVariant::Filled).on_press(Message::SetQi2(true))
     };
     let disable = if loading || !status.enabled {
-        button::button("关闭", ButtonVariant::Outlined)
+        button::button("Disable", ButtonVariant::Outlined)
     } else {
-        button::button("关闭", ButtonVariant::Outlined).on_press(Message::SetQi2(false))
+        button::button("Disable", ButtonVariant::Outlined).on_press(Message::SetQi2(false))
     };
 
     page::section(
         "Qi2.2",
         page::stack([
-            kv("当前状态", current),
+            kv("Current status", current),
             page::row([enable.into(), disable.into()]).into(),
         ]),
     )
@@ -490,7 +502,7 @@ fn qi2_section(status: &Qi2Status, loading: bool) -> material::Element<'_, Messa
 }
 
 fn empty_section(message: &str) -> material::Element<'_, Message> {
-    page::section("提示", material::text::body_medium(message)).into()
+    page::section("Notice", material::text::body_medium(message)).into()
 }
 
 fn kv<'a>(label: impl Into<String>, value: impl Into<String>) -> material::Element<'a, Message> {
@@ -503,9 +515,9 @@ fn kv<'a>(label: impl Into<String>, value: impl Into<String>) -> material::Eleme
 
 fn status_text(success: bool, code: u8) -> String {
     if success {
-        "成功".to_owned()
+        "ok".to_owned()
     } else {
-        format!("失败({code})")
+        format!("failed({code})")
     }
 }
 
@@ -586,10 +598,10 @@ async fn platform_raw(input: String) -> GuiResult<String> {
                 .map_err(to_string)?;
             let _ = pb.disconnect().await;
             Ok(format!(
-                "命令: 0x{:02X}\n负载: {}\nCRC: {}",
+                "Command: 0x{:02X}\nPayload: {}\nCRC: {}",
                 parsed.cmd,
                 hex_upper(&parsed.payload),
-                if parsed.crc_ok { "通过" } else { "失败" }
+                if parsed.crc_ok { "ok" } else { "failed" }
             ))
         })
     })
@@ -609,10 +621,10 @@ async fn platform_raw(input: String) -> GuiResult<String> {
         .await
         .map_err(to_string)?;
     Ok(format!(
-        "命令: 0x{:02X}\n负载: {}\nCRC: {}",
+        "Command: 0x{:02X}\nPayload: {}\nCRC: {}",
         parsed.cmd,
         hex_upper(&parsed.payload),
-        if parsed.crc_ok { "通过" } else { "失败" }
+        if parsed.crc_ok { "ok" } else { "failed" }
     ))
 }
 
@@ -624,15 +636,15 @@ fn platform_label() -> &'static str {
     if cfg!(target_arch = "wasm32") {
         "WASM WebHID"
     } else {
-        "桌面 HID"
+        "Desktop HID"
     }
 }
 
 fn platform_hint() -> String {
     if cfg!(target_arch = "wasm32") {
-        "WASM 版需要 Chrome/Edge、HTTPS 或 localhost，并在连接时授权 WebHID。".to_owned()
+        "The WASM build requires Chrome or Edge, HTTPS or localhost, and WebHID permission when connecting.".to_owned()
     } else {
-        "桌面版会直接枚举 USB HID；Linux 可能需要 udev 规则。".to_owned()
+        "The desktop build enumerates USB HID directly; Linux may need udev rules.".to_owned()
     }
 }
 
@@ -642,6 +654,6 @@ mod tests {
 
     #[test]
     fn status_text_marks_failure_code() {
-        assert_eq!(status_text(false, 7), "失败(7)");
+        assert_eq!(status_text(false, 7), "failed(7)");
     }
 }

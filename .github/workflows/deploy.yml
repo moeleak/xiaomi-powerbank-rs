@@ -16,6 +16,58 @@ jobs:
       - name: Test
         run: nix develop -c cargo test --workspace
 
+  build-binaries:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: xiaomi-powerbank-linux
+            extension: ""
+          - os: macos-latest
+            artifact: xiaomi-powerbank-macos
+            extension: ""
+          - os: windows-latest
+            artifact: xiaomi-powerbank-windows
+            extension: ".exe"
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libfontconfig1-dev \
+            libgl1-mesa-dev \
+            libudev-dev \
+            libwayland-dev \
+            libx11-dev \
+            libx11-xcb-dev \
+            libxcb-render0-dev \
+            libxcb-shape0-dev \
+            libxcb-xfixes0-dev \
+            libxcursor-dev \
+            libxi-dev \
+            libxinerama-dev \
+            libxkbcommon-dev \
+            libxrandr-dev \
+            pkg-config
+      - name: Build release binaries
+        run: cargo build --release -p xiaomi-pb-cli -p xiaomi-pb-gui
+      - name: Stage binaries
+        shell: bash
+        run: |
+          mkdir -p "artifacts/${{ matrix.artifact }}"
+          cp "target/release/xiaomi-pb${{ matrix.extension }}" "artifacts/${{ matrix.artifact }}/"
+          cp "target/release/xiaomi-pb-gui${{ matrix.extension }}" "artifacts/${{ matrix.artifact }}/"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: artifacts/${{ matrix.artifact }}
+
   deploy:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: test

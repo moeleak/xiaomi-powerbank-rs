@@ -86,72 +86,72 @@ pub struct DeviceModel {
 pub const MODEL_DB: &[DeviceModel] = &[
     DeviceModel {
         id: 1,
-        name: "小米自带线充电宝 10000 67W",
+        name: "Xiaomi Integrated-Cable Power Bank 10000 67W",
         code: "PB1067MI",
     },
     DeviceModel {
         id: 2,
-        name: "小米自带线充电宝 10000 口袋版",
+        name: "Xiaomi Integrated-Cable Power Bank 10000 Pocket Edition",
         code: "P15",
     },
     DeviceModel {
         id: 3,
-        name: "小米充电宝 自带线 快充版 20000 45W",
+        name: "Xiaomi Integrated-Cable Fast-Charge Power Bank 20000 45W",
         code: "PB2045MI",
     },
     DeviceModel {
         id: 4,
-        name: "小米自带线充电宝 20000 22.5W",
+        name: "Xiaomi Integrated-Cable Power Bank 20000 22.5W",
         code: "PB2020",
     },
     DeviceModel {
         id: 5,
-        name: "小米自带线充电宝 20000 67W",
+        name: "Xiaomi Integrated-Cable Power Bank 20000 67W",
         code: "PB2067MI",
     },
     DeviceModel {
         id: 6,
-        name: "小米充电宝 Pro 25000 250W",
+        name: "Xiaomi Power Bank Pro 25000 250W",
         code: "P25",
     },
     DeviceModel {
         id: 7,
-        name: "小米充电宝 伸缩线 10000 55W",
+        name: "Xiaomi Retractable-Cable Power Bank 10000 55W",
         code: "NPB1055R",
     },
     DeviceModel {
         id: 8,
-        name: "小米充电宝 三合一 10000 67W",
+        name: "Xiaomi 3-in-1 Power Bank 10000 67W",
         code: "AC1067",
     },
     DeviceModel {
         id: 9,
-        name: "小米金沙江充电宝 超薄磁吸 10000 45W",
+        name: "Xiaomi Jinshajiang Ultra-Thin Magnetic Power Bank 10000 45W",
         code: "WPB1025S",
     },
     DeviceModel {
         id: 10,
-        name: "小米金沙江充电宝 超薄磁吸 5000 27W",
+        name: "Xiaomi Jinshajiang Ultra-Thin Magnetic Power Bank 5000 27W",
         code: "WPB0525S",
     },
     DeviceModel {
         id: 11,
-        name: "小米充电宝 磁吸支架 10000 7.5W 2026版",
+        name: "Xiaomi Magnetic Stand Power Bank 10000 7.5W 2026",
         code: "WPB1007ZX",
     },
     DeviceModel {
         id: 12,
-        name: "小米充电宝 磁吸自带线 10000 45W",
+        name: "Xiaomi Magnetic Integrated-Cable Power Bank 10000 45W",
         code: "WPB1025",
     },
     DeviceModel {
         id: 13,
-        name: "小米自带线充电宝 10000 口袋版 2026",
+        name: "Xiaomi Integrated-Cable Power Bank 10000 Pocket Edition 2026",
         code: "P15",
     },
     DeviceModel {
         id: 14,
-        name: "小米自带线充电宝 20000 22.5W 2026",
+        name: "Xiaomi Integrated-Cable Power Bank 20000 22.5W 2026",
         code: "PB2020",
     },
 ];
@@ -176,10 +176,10 @@ pub enum ChargingStatus {
 impl fmt::Display for ChargingStatus {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Idle => f.write_str("空闲"),
-            Self::Charging => f.write_str("充电中"),
-            Self::Discharging => f.write_str("放电中"),
-            Self::Unknown(value) => write!(f, "未知({value})"),
+            Self::Idle => f.write_str("Idle"),
+            Self::Charging => f.write_str("Charging"),
+            Self::Discharging => f.write_str("Discharging"),
+            Self::Unknown(value) => write!(f, "Unknown({value})"),
         }
     }
 }
@@ -213,10 +213,10 @@ pub enum ChargeState {
 impl fmt::Display for ChargeState {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Discharging => f.write_str("放电"),
-            Self::Charging => f.write_str("充电"),
-            Self::Idle => f.write_str("空闲"),
-            Self::Unknown(value) => write!(f, "未知({value})"),
+            Self::Discharging => f.write_str("Discharging"),
+            Self::Charging => f.write_str("Charging"),
+            Self::Idle => f.write_str("Idle"),
+            Self::Unknown(value) => write!(f, "Unknown({value})"),
         }
     }
 }
