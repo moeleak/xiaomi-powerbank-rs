@@ -33,6 +33,9 @@
               trunk
               wasm-bindgen-cli
             ]
+            ++ lib.optionals stdenv.isLinux [
+              systemd.dev
+            ]
             ++ lib.optionals stdenv.isDarwin [
               libiconv
             ];
