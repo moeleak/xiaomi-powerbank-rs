@@ -1,12 +1,12 @@
-# Xiaomi Powerbank RS
+# Xiaomi Powerbank Manager
 
-Rust implementation of the Xiaomi power bank USB HID protocol from
+Xiaomi Powerbank Manager is a Rust implementation of the Xiaomi power bank USB HID protocol from
 [`yomiel-s/xiaomi-powerbank-tools`](https://github.com/yomiel-s/xiaomi-powerbank-tools).
 
 The project provides:
 
-- `xiaomi-pb`: a CLI with colored output, shell completions, and an interactive REPL.
-- `xiaomi-pb-gui`: a Material 3 desktop app built with `material-ui-rs`.
+- `xiaomi-pb`: the Xiaomi Powerbank Manager CLI with colored output, shell completions, and an interactive REPL.
+- `xiaomi-pb-gui`: the Xiaomi Powerbank Manager Material 3 desktop app built with `material-ui-rs`.
 - A WebAssembly GUI that uses browser WebHID and deploys to Cloudflare Workers.
 
 ## Development

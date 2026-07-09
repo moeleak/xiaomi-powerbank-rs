@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description = "Native HID transport for Xiaomi power banks"
+description = "Native HID transport for Xiaomi Powerbank Manager"
 
 [dependencies]
 async-trait.workspace = true

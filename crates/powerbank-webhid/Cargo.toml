@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description = "WebHID transport for Xiaomi power banks"
+description = "WebHID transport for Xiaomi Powerbank Manager"
 
 [dependencies]
 async-trait.workspace = true
@@ -16,4 +16,3 @@ powerbank-core.workspace = true
 js-sys.workspace = true
 wasm-bindgen.workspace = true
 wasm-bindgen-futures.workspace = true
-

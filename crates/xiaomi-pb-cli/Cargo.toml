@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description = "CLI for Xiaomi power banks"
+description = "Command line interface for Xiaomi Powerbank Manager"
 
 [[bin]]
 name = "xiaomi-pb"
@@ -22,4 +22,3 @@ powerbank-core.workspace = true
 powerbank-hid.workspace = true
 rustyline.workspace = true
 shlex.workspace = true
-

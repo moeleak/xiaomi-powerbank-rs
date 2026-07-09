@@ -2,7 +2,7 @@
 
 use iced::time::Instant;
 use iced::{Size, Subscription, Task};
-use material::widget::{button, navigation, page, text_input};
+use material::widget::{button, navigation, page, progress_bar, text_input};
 use material_ui_rs as material;
 use powerbank_core::{
     BatteryInfo, CellStatus, CellTempModel, DeviceSnapshot, HelloInfo, PowerBank, Qi2Status,
@@ -12,12 +12,13 @@ use std::time::Duration;
 
 const WINDOW_SIZE: Size = Size::new(1120.0, 840.0);
 const MIN_WINDOW_SIZE: Size = Size::new(420.0, 720.0);
+const APP_NAME: &str = "Xiaomi Powerbank Manager";
 
 type GuiResult<T> = std::result::Result<T, String>;
 
 pub fn main() -> iced::Result {
-    material::application(App::default, update, view)
-        .title("Xiaomi Powerbank")
+    material::application(App::new, update, view)
+        .title(APP_NAME)
         .subscription(subscription)
         .window(material::window_with_min_size(WINDOW_SIZE, MIN_WINDOW_SIZE))
         .run()
@@ -61,6 +62,7 @@ struct App {
     window_size: Size,
     snapshot: Option<DeviceSnapshot>,
     loading: bool,
+    progress_animation: progress_bar::IndeterminateState,
     last_error: Option<String>,
     raw_input: String,
     raw_result: Option<String>,
@@ -74,6 +76,7 @@ impl Default for App {
             window_size: WINDOW_SIZE,
             snapshot: None,
             loading: false,
+            progress_animation: progress_bar::IndeterminateState::new(Instant::now()),
             last_error: None,
             raw_input: "A5060100D9".to_owned(),
             raw_result: None,
@@ -83,8 +86,39 @@ impl Default for App {
 }
 
 impl App {
+    fn new() -> (Self, Task<Message>) {
+        let mut app = Self::default();
+
+        if cfg!(target_arch = "wasm32") {
+            (app, Task::none())
+        } else {
+            let task = app.start_refresh();
+            (app, task)
+        }
+    }
+
     fn adaptive_navigation_layout(&self) -> navigation::AdaptiveLayout {
         navigation::adaptive_layout(self.window_size.width, self.window_size.height)
+    }
+
+    fn begin_operation(&mut self) -> bool {
+        if self.loading {
+            return false;
+        }
+
+        self.loading = true;
+        self.progress_animation = progress_bar::IndeterminateState::new(Instant::now());
+        true
+    }
+
+    fn start_refresh(&mut self) -> Task<Message> {
+        if !self.begin_operation() {
+            return Task::none();
+        }
+
+        self.last_error = None;
+        self.log("Reading device information");
+        Task::perform(load_snapshot(), Message::SnapshotLoaded)
     }
 
     fn log(&mut self, entry: impl Into<String>) {
@@ -112,14 +146,12 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
         }
         Message::Frame(now) => {
             let _ = app.navigation.advance(now);
+            if app.loading {
+                app.progress_animation.advance(now);
+            }
             Task::none()
         }
-        Message::Refresh => {
-            app.loading = true;
-            app.last_error = None;
-            app.log("Reading device information");
-            Task::perform(load_snapshot(), Message::SnapshotLoaded)
-        }
+        Message::Refresh => app.start_refresh(),
         Message::SnapshotLoaded(result) => {
             app.loading = false;
             match result {
@@ -136,7 +168,9 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
             Task::none()
         }
         Message::SetQi2(enable) => {
-            app.loading = true;
+            if !app.begin_operation() {
+                return Task::none();
+            }
             app.last_error = None;
             app.log(if enable {
                 "Requesting Qi2.2 enable"
@@ -150,7 +184,9 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
             Task::none()
         }
         Message::SendRaw => {
-            app.loading = true;
+            if !app.begin_operation() {
+                return Task::none();
+            }
             app.raw_result = None;
             app.last_error = None;
             app.log(format!("Sending raw command: {}", app.raw_input));
@@ -182,7 +218,7 @@ fn subscription(app: &App) -> Subscription<Message> {
     let mut subscriptions =
         vec![iced::window::resize_events().map(|(_id, size)| Message::WindowResized(size))];
 
-    if app.navigation.is_animating() {
+    if app.navigation.is_animating() || app.loading {
         subscriptions.push(iced::window::frames().map(Message::Frame));
     }
 
@@ -192,7 +228,7 @@ fn subscription(app: &App) -> Subscription<Message> {
 fn view(app: &App) -> material::Element<'_, Message> {
     navigation::suite(&DESTINATIONS, &app.navigation)
         .layout(app.adaptive_navigation_layout())
-        .with_menu("Xiaomi Powerbank", Message::MenuPressed)
+        .with_menu("Manager", Message::MenuPressed)
         .view(Message::Navigate, app.navigation.selected().view(app))
 }
 
@@ -244,7 +280,7 @@ fn battery_page(app: &App) -> material::Element<'_, Message> {
         }
     } else {
         sections.push(empty_section(
-            "No device data yet. Refresh once to read the device.",
+            "No device data yet. The desktop app refreshes automatically; WebHID requires Connect.",
         ));
     }
 
@@ -264,7 +300,9 @@ fn qi2_page(app: &App) -> material::Element<'_, Message> {
             sections.push(empty_section("The device did not return Qi2.2 status."));
         }
     } else {
-        sections.push(empty_section("Refresh before viewing Qi2.2 status."));
+        sections.push(empty_section(
+            "No Qi2.2 data yet. The desktop app refreshes automatically; WebHID requires Connect.",
+        ));
     }
 
     page::surface(
@@ -278,7 +316,11 @@ fn raw_page(app: &App) -> material::Element<'_, Message> {
     use material::widget::button::ButtonVariant;
 
     let input = text_input::outlined("Raw hex", &app.raw_input).on_input(Message::RawChanged);
-    let send = button::button("Send", ButtonVariant::Filled).on_press(Message::SendRaw);
+    let send = if app.loading {
+        button::button("Send", ButtonVariant::Filled)
+    } else {
+        button::button("Send", ButtonVariant::Filled).on_press(Message::SendRaw)
+    };
     let mut stack = vec![input.into(), send.into()];
 
     if let Some(result) = &app.raw_result {
@@ -332,6 +374,9 @@ fn status_section(app: &App) -> material::Element<'_, Message> {
     };
 
     let mut rows = vec![kv("Status", status)];
+    if app.loading {
+        rows.push(loading_indicator(app));
+    }
     rows.push(kv("Runtime", platform_label()));
     if let Some(error) = &app.last_error {
         rows.push(kv("Last error", error));
@@ -340,17 +385,43 @@ fn status_section(app: &App) -> material::Element<'_, Message> {
     page::section("Status", page::stack(rows)).into()
 }
 
+fn loading_indicator(app: &App) -> material::Element<'_, Message> {
+    use progress_bar::LoadingIndicatorMode;
+
+    page::row([
+        progress_bar::loading(LoadingIndicatorMode::contained_indeterminate(
+            app.progress_animation.loading_phase(),
+        ))
+        .into(),
+        material::text::body_medium("Communicating with device").into(),
+    ])
+    .into()
+}
+
 fn actions_section(app: &App) -> material::Element<'_, Message> {
     use material::widget::button::ButtonVariant;
 
-    let label = if app.loading { "Loading" } else { "Refresh" };
-    let refresh = if app.loading {
-        button::button(label, ButtonVariant::Filled)
+    if cfg!(target_arch = "wasm32") {
+        let label = if app.loading { "Loading" } else { "Connect" };
+        let refresh = if app.loading {
+            button::button(label, ButtonVariant::Filled)
+        } else {
+            button::button(label, ButtonVariant::Filled).on_press(Message::Refresh)
+        };
+        return page::section("Actions", page::row([refresh.into()])).into();
+    }
+
+    let content = if app.loading {
+        loading_indicator(app)
+    } else if app.snapshot.is_some() {
+        material::text::body_medium("Automatic refresh completed").into()
+    } else if app.last_error.is_some() {
+        material::text::body_medium("Automatic refresh failed").into()
     } else {
-        button::button(label, ButtonVariant::Filled).on_press(Message::Refresh)
+        material::text::body_medium("Automatic refresh starts when the app opens").into()
     };
 
-    page::section("Actions", page::row([refresh.into()])).into()
+    page::section("Actions", content).into()
 }
 
 fn device_section(info: &HelloInfo) -> material::Element<'_, Message> {
@@ -537,7 +608,8 @@ async fn send_raw(input: String) -> GuiResult<String> {
 async fn platform_snapshot() -> GuiResult<DeviceSnapshot> {
     std::thread::spawn(|| {
         futures::executor::block_on(async {
-            let transport = powerbank_hid::HidTransport::open_first().map_err(to_string)?;
+            let transport = powerbank_hid::HidTransport::wait_for_first(Duration::from_millis(500))
+                .map_err(to_string)?;
             let mut pb = PowerBank::new(transport);
             let snapshot = pb.snapshot().await.map_err(to_string)?;
             let _ = pb.disconnect().await;
@@ -655,5 +727,43 @@ mod tests {
     #[test]
     fn status_text_marks_failure_code() {
         assert_eq!(status_text(false, 7), "failed(7)");
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn native_app_starts_refreshing() {
+        let (app, _) = App::new();
+
+        assert!(app.loading);
+        assert!(
+            app.logs
+                .iter()
+                .any(|line| line == "Reading device information")
+        );
+    }
+
+    #[test]
+    fn refresh_is_ignored_while_loading() {
+        let mut app = App::default();
+        app.loading = true;
+        let log_count = app.logs.len();
+
+        let _ = update(&mut app, Message::Refresh);
+
+        assert!(app.loading);
+        assert_eq!(app.logs.len(), log_count);
+        assert!(app.last_error.is_none());
+    }
+
+    #[test]
+    fn raw_send_is_ignored_while_loading() {
+        let mut app = App::default();
+        app.loading = true;
+        app.raw_result = Some("previous result".to_owned());
+
+        let _ = update(&mut app, Message::SendRaw);
+
+        assert!(app.loading);
+        assert_eq!(app.raw_result.as_deref(), Some("previous result"));
     }
 }

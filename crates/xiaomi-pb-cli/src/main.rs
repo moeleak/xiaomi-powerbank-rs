@@ -22,7 +22,7 @@ use std::thread;
 use std::time::Duration;
 
 #[derive(Debug, Parser)]
-#[command(name = "xiaomi-pb", version, about = "Xiaomi power bank USB HID tool")]
+#[command(name = "xiaomi-pb", version, about = "Xiaomi Powerbank Manager CLI")]
 struct Cli {
     #[arg(long, global = true, help = "Show HID traffic logs")]
     debug: bool,

@@ -1,5 +1,5 @@
 {
-  description = "Rust tools for Xiaomi power bank HID protocol";
+  description = "Xiaomi Powerbank Manager development environment";
 
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
