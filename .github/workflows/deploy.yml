@@ -23,13 +23,13 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            artifact: xiaomi-powerbank-linux
+            artifact: xiaomi-powerbank-manager-linux
             extension: ""
           - os: macos-latest
-            artifact: xiaomi-powerbank-macos
+            artifact: xiaomi-powerbank-manager-macos
             extension: ""
           - os: windows-latest
-            artifact: xiaomi-powerbank-windows
+            artifact: xiaomi-powerbank-manager-windows
             extension: ".exe"
     runs-on: ${{ matrix.os }}
     steps:
@@ -90,5 +90,6 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: "4"
           workingDirectory: worker
           command: deploy
