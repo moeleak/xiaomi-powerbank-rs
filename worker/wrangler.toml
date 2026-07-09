@@ -3,7 +3,7 @@ compatibility_date = "2026-07-09"
 workers_dev = false
 
 routes = [
-  { pattern = "xiaomi-powerbank.leak.moe/*", zone_name = "leak.moe" }
+  { pattern = "xiaomi-powerbank.leak.moe", custom_domain = true }
 ]
 
 [assets]
