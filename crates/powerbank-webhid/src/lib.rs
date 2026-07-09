@@ -17,9 +17,28 @@ export function webhidSupported() {
   return typeof navigator !== "undefined" && !!navigator.hid;
 }
 
+let cachedDevice = null;
+
+function matchesVendor(device, vendorIds) {
+  return Array.from(vendorIds).some((vendorId) => device.vendorId === Number(vendorId));
+}
+
+async function openDevice(device) {
+  if (!device.opened) {
+    await device.open();
+  }
+
+  cachedDevice = device;
+  return device;
+}
+
 export async function webhidRequestDevice(vendorIds) {
   if (!webhidSupported()) {
     throw new Error("This browser does not support WebHID");
+  }
+
+  if (cachedDevice && matchesVendor(cachedDevice, vendorIds)) {
+    return await openDevice(cachedDevice);
   }
 
   const filters = Array.from(vendorIds).map((vendorId) => ({ vendorId }));
@@ -29,13 +48,7 @@ export async function webhidRequestDevice(vendorIds) {
     throw new Error("No HID device was selected");
   }
 
-  const device = devices[0];
-
-  if (!device.opened) {
-    await device.open();
-  }
-
-  return device;
+  return await openDevice(devices[0]);
 }
 
 export async function webhidSendReport(device, data) {
