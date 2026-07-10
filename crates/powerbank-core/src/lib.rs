@@ -1,8 +1,10 @@
 use async_trait::async_trait;
 use chrono::{Datelike, NaiveDate};
 use std::fmt;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 use thiserror::Error;
+// `std::time::{Instant, SystemTime}` panics at runtime on wasm32-unknown-unknown.
+use web_time::{Instant, SystemTime, UNIX_EPOCH};
 
 pub const VENDOR_IDS: [u16; 2] = [0x2717, 0x1A86];
 pub const FRAME_SIZE: usize = 32;

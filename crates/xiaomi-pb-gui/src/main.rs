@@ -416,7 +416,9 @@ fn actions_section(app: &App) -> material::Element<'_, Message> {
     } else if app.snapshot.is_some() {
         material::text::body_medium("Automatic refresh completed").into()
     } else if app.last_error.is_some() {
-        material::text::body_medium("Automatic refresh failed").into()
+        button::button("Retry", ButtonVariant::Filled)
+            .on_press(Message::Refresh)
+            .into()
     } else {
         material::text::body_medium("Automatic refresh starts when the app opens").into()
     };
@@ -605,8 +607,60 @@ async fn send_raw(input: String) -> GuiResult<String> {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+type NativeHidJob = Box<dyn FnOnce() + Send + 'static>;
+
+#[cfg(not(target_arch = "wasm32"))]
+fn native_hid_worker() -> GuiResult<std::sync::mpsc::Sender<NativeHidJob>> {
+    use std::sync::{OnceLock, mpsc};
+
+    // On macOS, hidapi binds its global IOHIDManager to the first caller's
+    // CFRunLoop. Keep that thread alive and route every native HID call to it.
+    static WORKER: OnceLock<GuiResult<mpsc::Sender<NativeHidJob>>> = OnceLock::new();
+
+    WORKER
+        .get_or_init(|| {
+            let (jobs, pending_jobs) = mpsc::channel::<NativeHidJob>();
+            std::thread::Builder::new()
+                .name("xiaomi-pb-hid".to_owned())
+                .spawn(move || {
+                    while let Ok(job) = pending_jobs.recv() {
+                        job();
+                    }
+                })
+                .map(|_| jobs)
+                .map_err(|err| format!("Failed to start HID worker thread: {err}"))
+        })
+        .clone()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+async fn run_on_native_hid_worker<T>(
+    operation: impl FnOnce() -> GuiResult<T> + Send + 'static,
+) -> GuiResult<T>
+where
+    T: Send + 'static,
+{
+    use futures::channel::oneshot;
+    use std::panic::{AssertUnwindSafe, catch_unwind};
+
+    let worker = native_hid_worker()?;
+    let (result_sender, result_receiver) = oneshot::channel();
+    worker
+        .send(Box::new(move || {
+            let result = catch_unwind(AssertUnwindSafe(operation))
+                .unwrap_or_else(|_| Err("HID operation panicked".to_owned()));
+            let _ = result_sender.send(result);
+        }))
+        .map_err(|_| "HID worker thread stopped unexpectedly".to_owned())?;
+
+    result_receiver
+        .await
+        .map_err(|_| "HID worker thread stopped before returning a result".to_owned())?
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 async fn platform_snapshot() -> GuiResult<DeviceSnapshot> {
-    std::thread::spawn(|| {
+    run_on_native_hid_worker(|| {
         futures::executor::block_on(async {
             let transport = powerbank_hid::HidTransport::wait_for_first(Duration::from_millis(500))
                 .map_err(to_string)?;
@@ -616,8 +670,7 @@ async fn platform_snapshot() -> GuiResult<DeviceSnapshot> {
             Ok(snapshot)
         })
     })
-    .join()
-    .map_err(|_| "HID worker thread panicked".to_owned())?
+    .await
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -631,7 +684,7 @@ async fn platform_snapshot() -> GuiResult<DeviceSnapshot> {
 
 #[cfg(not(target_arch = "wasm32"))]
 async fn platform_set_qi2(enable: bool) -> GuiResult<DeviceSnapshot> {
-    std::thread::spawn(move || {
+    run_on_native_hid_worker(move || {
         futures::executor::block_on(async move {
             let transport = powerbank_hid::HidTransport::open_first().map_err(to_string)?;
             let mut pb = PowerBank::new(transport);
@@ -642,8 +695,7 @@ async fn platform_set_qi2(enable: bool) -> GuiResult<DeviceSnapshot> {
             Ok(snapshot)
         })
     })
-    .join()
-    .map_err(|_| "HID worker thread panicked".to_owned())?
+    .await
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -659,7 +711,7 @@ async fn platform_set_qi2(enable: bool) -> GuiResult<DeviceSnapshot> {
 
 #[cfg(not(target_arch = "wasm32"))]
 async fn platform_raw(input: String) -> GuiResult<String> {
-    std::thread::spawn(move || {
+    run_on_native_hid_worker(move || {
         futures::executor::block_on(async move {
             let transport = powerbank_hid::HidTransport::open_first().map_err(to_string)?;
             let mut pb = PowerBank::new(transport);
@@ -677,8 +729,7 @@ async fn platform_raw(input: String) -> GuiResult<String> {
             ))
         })
     })
-    .join()
-    .map_err(|_| "HID worker thread panicked".to_owned())?
+    .await
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -740,6 +791,23 @@ mod tests {
                 .iter()
                 .any(|line| line == "Reading device information")
         );
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn native_hid_operations_reuse_the_same_thread() {
+        let test_thread = std::thread::current().id();
+        let first = futures::executor::block_on(run_on_native_hid_worker(|| {
+            Ok(std::thread::current().id())
+        }))
+        .unwrap();
+        let second = futures::executor::block_on(run_on_native_hid_worker(|| {
+            Ok(std::thread::current().id())
+        }))
+        .unwrap();
+
+        assert_ne!(first, test_thread);
+        assert_eq!(first, second);
     }
 
     #[test]

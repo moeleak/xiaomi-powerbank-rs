@@ -18,14 +18,110 @@ export function webhidSupported() {
 }
 
 let cachedDevice = null;
+const DEVICE_IO_TIMEOUT_MS = 5000;
+const MAX_QUEUED_REPORTS = 64;
+const deviceStates = new WeakMap();
+
+function withTimeout(operation, timeoutMs, message) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      reject(new Error(message));
+    }, timeoutMs);
+
+    Promise.resolve(operation).then(
+      (value) => {
+        if (settled) {
+          return;
+        }
+
+        settled = true;
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        if (settled) {
+          return;
+        }
+
+        settled = true;
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
+function stateForDevice(device) {
+  let state = deviceStates.get(device);
+  if (state) {
+    return state;
+  }
+
+  state = {
+    reports: [],
+    waiters: [],
+    onReport: null,
+  };
+  state.onReport = (event) => {
+    const view = event.data;
+    const bytes = new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
+    const report = new Uint8Array(bytes);
+    const waiter = state.waiters.shift();
+
+    if (waiter) {
+      clearTimeout(waiter.timer);
+      waiter.resolve(report);
+      return;
+    }
+
+    if (state.reports.length >= MAX_QUEUED_REPORTS) {
+      state.reports.shift();
+    }
+    state.reports.push(report);
+  };
+
+  device.addEventListener("inputreport", state.onReport);
+  deviceStates.set(device, state);
+  return state;
+}
+
+function forgetDevice(device, reason) {
+  const state = deviceStates.get(device);
+  if (state) {
+    device.removeEventListener("inputreport", state.onReport);
+    for (const waiter of state.waiters) {
+      clearTimeout(waiter.timer);
+      waiter.reject(reason);
+    }
+    deviceStates.delete(device);
+  }
+
+  if (cachedDevice === device) {
+    cachedDevice = null;
+  }
+}
+
+if (typeof navigator !== "undefined" && navigator.hid) {
+  navigator.hid.addEventListener("disconnect", (event) => {
+    forgetDevice(event.device, new Error("device disconnected"));
+  });
+}
 
 function matchesVendor(device, vendorIds) {
   return Array.from(vendorIds).some((vendorId) => device.vendorId === Number(vendorId));
 }
 
 async function openDevice(device) {
+  stateForDevice(device);
+
   if (!device.opened) {
-    await device.open();
+    await withTimeout(device.open(), DEVICE_IO_TIMEOUT_MS, "device open timeout");
   }
 
   cachedDevice = device;
@@ -52,45 +148,31 @@ export async function webhidRequestDevice(vendorIds) {
 }
 
 export async function webhidSendReport(device, data) {
-  if (!device.opened) {
-    await device.open();
-  }
-
-  await device.sendReport(0, data);
+  await openDevice(device);
+  await withTimeout(
+    device.sendReport(0, data),
+    DEVICE_IO_TIMEOUT_MS,
+    "report send timeout",
+  );
 }
 
 export function webhidReadReport(device, timeoutMs) {
+  const state = stateForDevice(device);
+  if (state.reports.length) {
+    return Promise.resolve(state.reports.shift());
+  }
+
   return new Promise((resolve, reject) => {
-    let settled = false;
-
-    const cleanup = () => {
-      device.removeEventListener("inputreport", onReport);
-      clearTimeout(timer);
-    };
-
-    const onReport = (event) => {
-      if (settled) {
-        return;
-      }
-
-      settled = true;
-      cleanup();
-      const view = event.data;
-      const bytes = new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
-      resolve(new Uint8Array(bytes));
-    };
-
+    const waiter = { resolve, reject, timer: null };
     const timer = setTimeout(() => {
-      if (settled) {
-        return;
+      const index = state.waiters.indexOf(waiter);
+      if (index >= 0) {
+        state.waiters.splice(index, 1);
       }
-
-      settled = true;
-      cleanup();
       reject(new Error("response timeout"));
     }, timeoutMs);
-
-    device.addEventListener("inputreport", onReport);
+    waiter.timer = timer;
+    state.waiters.push(waiter);
   });
 }
 "#)]

@@ -5,6 +5,8 @@ use std::ffi::CString;
 use std::thread;
 use std::time::Duration;
 
+const DEVICE_OPEN_RETRY_ATTEMPTS: usize = 5;
+
 #[derive(Debug, Clone)]
 pub struct NativeDeviceInfo {
     path: CString,
@@ -38,12 +40,31 @@ impl HidTransport {
     }
 
     pub fn wait_for_first(poll_interval: Duration) -> Result<Self> {
-        loop {
-            match Self::open_first() {
-                Ok(transport) => return Ok(transport),
-                Err(_) => thread::sleep(poll_interval),
-            }
-        }
+        let mut api = HidApi::new().map_err(to_transport_error)?;
+        let mut open_failures = 0;
+        let device = poll_until_some(
+            poll_interval,
+            || {
+                api.refresh_devices().map_err(to_transport_error)?;
+                let Some(info) = find_device(&api) else {
+                    open_failures = 0;
+                    return Ok(None);
+                };
+                match open_device(&api, &info) {
+                    Ok(device) => Ok(Some(device)),
+                    Err(err) => {
+                        open_failures += 1;
+                        if open_failures >= DEVICE_OPEN_RETRY_ATTEMPTS {
+                            Err(err)
+                        } else {
+                            Ok(None)
+                        }
+                    }
+                }
+            },
+            thread::sleep,
+        )?;
+        Ok(Self { api, device })
     }
 
     pub fn open_path(path: &str) -> Result<Self> {
@@ -60,12 +81,7 @@ impl HidTransport {
     }
 
     fn open_info(api: HidApi, info: &NativeDeviceInfo) -> Result<Self> {
-        let device = api.open_path(&info.path).map_err(|err| {
-            PowerBankError::Transport(format!(
-                "Failed to open device {}: {err}. Linux may need udev rules; macOS may need Input Monitoring permission.",
-                info.path_display()
-            ))
-        })?;
+        let device = open_device(&api, info)?;
         Ok(Self { api, device })
     }
 
@@ -127,6 +143,79 @@ pub fn find_device(api: &HidApi) -> Option<NativeDeviceInfo> {
     list_devices(api).into_iter().next()
 }
 
+fn open_device(api: &HidApi, info: &NativeDeviceInfo) -> Result<HidDevice> {
+    api.open_path(&info.path).map_err(|err| {
+        PowerBankError::Transport(format!(
+            "Failed to open device {}: {err}. Linux may need udev rules; macOS may need Input Monitoring permission.",
+            info.path_display()
+        ))
+    })
+}
+
+fn poll_until_some<T>(
+    poll_interval: Duration,
+    mut poll: impl FnMut() -> Result<Option<T>>,
+    mut sleep: impl FnMut(Duration),
+) -> Result<T> {
+    loop {
+        if let Some(value) = poll()? {
+            return Ok(value);
+        }
+        sleep(poll_interval);
+    }
+}
+
 fn to_transport_error(error: hidapi::HidError) -> PowerBankError {
     PowerBankError::Transport(error.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn polling_retries_only_while_device_is_absent() {
+        let interval = Duration::from_millis(25);
+        let mut poll_count = 0;
+        let mut sleeps = Vec::new();
+
+        let value = poll_until_some(
+            interval,
+            || {
+                poll_count += 1;
+                Ok((poll_count == 3).then_some(42))
+            },
+            |duration| sleeps.push(duration),
+        )
+        .unwrap();
+
+        assert_eq!(value, 42);
+        assert_eq!(poll_count, 3);
+        assert_eq!(sleeps, vec![interval, interval]);
+    }
+
+    #[test]
+    fn polling_propagates_refresh_errors() {
+        let interval = Duration::from_millis(25);
+        let mut poll_count = 0;
+        let mut sleep_count = 0;
+
+        let err = poll_until_some::<()>(
+            interval,
+            || {
+                poll_count += 1;
+                if poll_count == 1 {
+                    Ok(None)
+                } else {
+                    Err(PowerBankError::Transport("refresh failed".to_owned()))
+                }
+            },
+            |_| sleep_count += 1,
+        )
+        .unwrap_err();
+
+        assert_eq!(err.to_string(), "transport error: refresh failed");
+        assert_eq!(poll_count, 2);
+        assert_eq!(sleep_count, 1);
+    }
 }
