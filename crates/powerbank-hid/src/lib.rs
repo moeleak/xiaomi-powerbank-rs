@@ -3,7 +3,7 @@ use hidapi::{HidApi, HidDevice};
 use powerbank_core::{FRAME_SIZE, PowerBankError, Result, Transport, VENDOR_IDS};
 use std::ffi::CString;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 const DEVICE_OPEN_RETRY_ATTEMPTS: usize = 5;
 
@@ -40,30 +40,55 @@ impl HidTransport {
     }
 
     pub fn wait_for_first(poll_interval: Duration) -> Result<Self> {
+        Self::wait_for_first_inner(poll_interval, None)
+    }
+
+    pub fn wait_for_first_timeout(poll_interval: Duration, timeout: Duration) -> Result<Self> {
+        Self::wait_for_first_inner(poll_interval, Some(timeout))
+    }
+
+    fn wait_for_first_inner(poll_interval: Duration, timeout: Option<Duration>) -> Result<Self> {
         let mut api = HidApi::new().map_err(to_transport_error)?;
         let mut open_failures = 0;
-        let device = poll_until_some(
-            poll_interval,
-            || {
-                api.refresh_devices().map_err(to_transport_error)?;
-                let Some(info) = find_device(&api) else {
-                    open_failures = 0;
-                    return Ok(None);
-                };
-                match open_device(&api, &info) {
-                    Ok(device) => Ok(Some(device)),
-                    Err(err) => {
-                        open_failures += 1;
-                        if open_failures >= DEVICE_OPEN_RETRY_ATTEMPTS {
-                            Err(err)
-                        } else {
-                            Ok(None)
-                        }
+        let bounded = timeout.is_some();
+        let mut last_open_error = None;
+        let mut poll = || {
+            api.refresh_devices().map_err(to_transport_error)?;
+            let Some(info) = find_device(&api) else {
+                open_failures = 0;
+                last_open_error = None;
+                return Ok(None);
+            };
+            match open_device(&api, &info) {
+                Ok(device) => Ok(Some(device)),
+                Err(err) => {
+                    if bounded {
+                        last_open_error = Some(err);
+                        return Ok(None);
+                    }
+                    open_failures += 1;
+                    if open_failures >= DEVICE_OPEN_RETRY_ATTEMPTS {
+                        Err(err)
+                    } else {
+                        Ok(None)
                     }
                 }
-            },
-            thread::sleep,
-        )?;
+            }
+        };
+        let device = if let Some(timeout) = timeout {
+            let device =
+                poll_until_some_with_timeout(poll_interval, timeout, &mut poll, thread::sleep)?;
+            device.ok_or_else(|| {
+                last_open_error.unwrap_or_else(|| {
+                    PowerBankError::Transport(format!(
+                        "No Xiaomi power bank HID device appeared within {:.0} seconds. Press the power bank button 8 times to re-enter data transfer mode, then retry.",
+                        timeout.as_secs_f32()
+                    ))
+                })
+            })?
+        } else {
+            poll_until_some(poll_interval, &mut poll, thread::sleep)?
+        };
         Ok(Self { api, device })
     }
 
@@ -165,6 +190,26 @@ fn poll_until_some<T>(
     }
 }
 
+fn poll_until_some_with_timeout<T>(
+    poll_interval: Duration,
+    timeout: Duration,
+    mut poll: impl FnMut() -> Result<Option<T>>,
+    mut sleep: impl FnMut(Duration),
+) -> Result<Option<T>> {
+    let started = Instant::now();
+    loop {
+        if let Some(value) = poll()? {
+            return Ok(Some(value));
+        }
+
+        let remaining = timeout.saturating_sub(started.elapsed());
+        if remaining.is_zero() {
+            return Ok(None);
+        }
+        sleep(poll_interval.min(remaining));
+    }
+}
+
 fn to_transport_error(error: hidapi::HidError) -> PowerBankError {
     PowerBankError::Transport(error.to_string())
 }
@@ -217,5 +262,48 @@ mod tests {
         assert_eq!(err.to_string(), "transport error: refresh failed");
         assert_eq!(poll_count, 2);
         assert_eq!(sleep_count, 1);
+    }
+
+    #[test]
+    fn bounded_poll_times_out_without_an_extra_sleep() {
+        let mut polls = 0;
+        let mut sleeps = 0;
+
+        let value = poll_until_some_with_timeout::<()>(
+            Duration::from_millis(25),
+            Duration::ZERO,
+            || {
+                polls += 1;
+                Ok(None)
+            },
+            |_| sleeps += 1,
+        )
+        .unwrap();
+
+        assert!(value.is_none());
+        assert_eq!(polls, 1);
+        assert_eq!(sleeps, 0);
+    }
+
+    #[test]
+    fn bounded_poll_returns_a_device_that_appears_before_deadline() {
+        let interval = Duration::from_millis(25);
+        let mut polls = 0;
+        let mut sleeps = Vec::new();
+
+        let value = poll_until_some_with_timeout(
+            interval,
+            Duration::from_secs(1),
+            || {
+                polls += 1;
+                Ok((polls == 3).then_some(42))
+            },
+            |duration| sleeps.push(duration),
+        )
+        .unwrap();
+
+        assert_eq!(value, Some(42));
+        assert_eq!(polls, 3);
+        assert_eq!(sleeps, vec![interval, interval]);
     }
 }

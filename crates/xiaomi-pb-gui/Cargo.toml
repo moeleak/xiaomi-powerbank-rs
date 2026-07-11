@@ -14,7 +14,8 @@ path = "src/main.rs"
 
 [dependencies]
 futures.workspace = true
-iced.workspace = true
+iced = { workspace = true, features = ["image-without-codecs"] }
+image = { version = "0.25", default-features = false, features = ["png"] }
 material-ui-rs.workspace = true
 powerbank-core.workspace = true
 

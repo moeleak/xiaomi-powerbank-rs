@@ -371,6 +371,12 @@ impl<T: Transport> PowerBank<T> {
         decode_hello_response(&rsp.payload)
     }
 
+    /// Keeps the interactive protocol session alive and consumes the hello
+    /// response so it cannot be mistaken for a later command response.
+    pub async fn heartbeat(&mut self) -> Result<()> {
+        self.handshake().await.map(drop)
+    }
+
     pub async fn battery_info(&mut self) -> Result<BatteryInfo> {
         let frame = build_command_frame(CMD_GET_BATTERY_INFO, &[])?;
         let rsp = self
@@ -990,5 +996,25 @@ mod tests {
                 .unwrap();
         assert_eq!(parsed.cmd, RSP_ENABLE_QI2);
         assert_eq!(pb.into_transport().writes.len(), 1);
+    }
+
+    #[test]
+    fn heartbeat_sends_hello_and_consumes_its_response() {
+        let mut payload = [0u8; 23];
+        payload[..2].copy_from_slice(&9u16.to_le_bytes());
+        payload[2..6].copy_from_slice(b"test");
+        let response = build_command_frame(RSP_HELLO, &payload).unwrap().to_vec();
+        let fake = FakeTransport {
+            responses: VecDeque::from([response]),
+            writes: Vec::new(),
+        };
+        let mut pb = PowerBank::new(fake);
+
+        block_on(pb.heartbeat()).unwrap();
+
+        let transport = pb.into_transport();
+        assert_eq!(transport.writes.len(), 1);
+        assert_eq!(transport.writes[0][1], CMD_HELLO);
+        assert!(transport.responses.is_empty());
     }
 }

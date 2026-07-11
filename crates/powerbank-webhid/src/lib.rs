@@ -18,6 +18,8 @@ export function webhidSupported() {
 }
 
 let cachedDevice = null;
+let selectedDeviceIdentity = null;
+const knownVendorIds = new Set();
 const DEVICE_IO_TIMEOUT_MS = 5000;
 const MAX_QUEUED_REPORTS = 64;
 const deviceStates = new WeakMap();
@@ -107,7 +109,32 @@ function forgetDevice(device, reason) {
   }
 }
 
+function identityForDevice(device) {
+  return {
+    vendorId: device.vendorId,
+    productId: device.productId,
+  };
+}
+
+function matchesSelectedDevice(device) {
+  if (!selectedDeviceIdentity) {
+    return true;
+  }
+
+  return device.vendorId === selectedDeviceIdentity.vendorId &&
+    device.productId === selectedDeviceIdentity.productId;
+}
+
 if (typeof navigator !== "undefined" && navigator.hid) {
+  navigator.hid.addEventListener("connect", (event) => {
+    if (
+      !cachedDevice &&
+      knownVendorIds.has(event.device.vendorId) &&
+      matchesSelectedDevice(event.device)
+    ) {
+      cachedDevice = event.device;
+    }
+  });
   navigator.hid.addEventListener("disconnect", (event) => {
     forgetDevice(event.device, new Error("device disconnected"));
   });
@@ -128,13 +155,60 @@ async function openDevice(device) {
   return device;
 }
 
-export async function webhidRequestDevice(vendorIds) {
+export async function webhidOpenAuthorizedDevice(vendorIds) {
   if (!webhidSupported()) {
     throw new Error("This browser does not support WebHID");
   }
 
+  for (const vendorId of vendorIds) {
+    knownVendorIds.add(Number(vendorId));
+  }
+
+  let lastError = null;
   if (cachedDevice && matchesVendor(cachedDevice, vendorIds)) {
-    return await openDevice(cachedDevice);
+    const device = cachedDevice;
+    try {
+      return await openDevice(device);
+    } catch (error) {
+      lastError = error;
+      forgetDevice(device, error);
+    }
+  }
+
+  const authorized = await withTimeout(
+    navigator.hid.getDevices(),
+    DEVICE_IO_TIMEOUT_MS,
+    "authorized device lookup timeout",
+  );
+  for (const device of authorized.filter(
+    (device) => matchesVendor(device, vendorIds) && matchesSelectedDevice(device),
+  )) {
+    try {
+      return await openDevice(device);
+    } catch (error) {
+      lastError = error;
+      forgetDevice(device, error);
+    }
+  }
+
+  if (lastError) {
+    throw lastError;
+  }
+
+  throw new Error("No authorized Xiaomi power bank HID device is available");
+}
+
+export async function webhidRequestDevice(vendorIds) {
+  return await webhidSelectDevice(vendorIds);
+}
+
+export async function webhidSelectDevice(vendorIds) {
+  if (!webhidSupported()) {
+    throw new Error("This browser does not support WebHID");
+  }
+
+  for (const vendorId of vendorIds) {
+    knownVendorIds.add(Number(vendorId));
   }
 
   const filters = Array.from(vendorIds).map((vendorId) => ({ vendorId }));
@@ -144,16 +218,24 @@ export async function webhidRequestDevice(vendorIds) {
     throw new Error("No HID device was selected");
   }
 
-  return await openDevice(devices[0]);
+  const device = await openDevice(devices[0]);
+  selectedDeviceIdentity = identityForDevice(device);
+  return device;
 }
 
 export async function webhidSendReport(device, data) {
-  await openDevice(device);
-  await withTimeout(
-    device.sendReport(0, data),
-    DEVICE_IO_TIMEOUT_MS,
-    "report send timeout",
-  );
+  try {
+    await openDevice(device);
+    stateForDevice(device).reports.length = 0;
+    await withTimeout(
+      device.sendReport(0, data),
+      DEVICE_IO_TIMEOUT_MS,
+      "report send timeout",
+    );
+  } catch (error) {
+    forgetDevice(device, error);
+    throw error;
+  }
 }
 
 export function webhidReadReport(device, timeoutMs) {
@@ -165,11 +247,7 @@ export function webhidReadReport(device, timeoutMs) {
   return new Promise((resolve, reject) => {
     const waiter = { resolve, reject, timer: null };
     const timer = setTimeout(() => {
-      const index = state.waiters.indexOf(waiter);
-      if (index >= 0) {
-        state.waiters.splice(index, 1);
-      }
-      reject(new Error("response timeout"));
+      forgetDevice(device, new Error("response timeout"));
     }, timeoutMs);
     waiter.timer = timer;
     state.waiters.push(waiter);
@@ -182,6 +260,12 @@ unsafe extern "C" {
 
     #[wasm_bindgen(js_name = webhidRequestDevice)]
     fn webhid_request_device(vendor_ids: &Array) -> Promise;
+
+    #[wasm_bindgen(js_name = webhidOpenAuthorizedDevice)]
+    fn webhid_open_authorized_device(vendor_ids: &Array) -> Promise;
+
+    #[wasm_bindgen(js_name = webhidSelectDevice)]
+    fn webhid_select_device(vendor_ids: &Array) -> Promise;
 
     #[wasm_bindgen(js_name = webhidSendReport)]
     fn webhid_send_report(device: &JsValue, data: &Uint8Array) -> Promise;
@@ -202,14 +286,24 @@ impl WebHidTransport {
     }
 
     pub async fn request_device() -> Result<Self> {
+        Self::open_with(webhid_request_device).await
+    }
+
+    pub async fn open_authorized() -> Result<Self> {
+        Self::open_with(webhid_open_authorized_device).await
+    }
+
+    pub async fn select_device() -> Result<Self> {
+        Self::open_with(webhid_select_device).await
+    }
+
+    async fn open_with(open: fn(&Array) -> Promise) -> Result<Self> {
         let vendor_ids = Array::new();
         for vendor_id in VENDOR_IDS {
             vendor_ids.push(&JsValue::from_f64(f64::from(vendor_id)));
         }
 
-        let device = JsFuture::from(webhid_request_device(&vendor_ids))
-            .await
-            .map_err(js_error)?;
+        let device = JsFuture::from(open(&vendor_ids)).await.map_err(js_error)?;
 
         Ok(Self { device })
     }
@@ -252,6 +346,18 @@ impl WebHidTransport {
     }
 
     pub async fn request_device() -> Result<Self> {
+        Err(PowerBankError::Transport(
+            "WebHID is only available for wasm32 builds".to_owned(),
+        ))
+    }
+
+    pub async fn open_authorized() -> Result<Self> {
+        Err(PowerBankError::Transport(
+            "WebHID is only available for wasm32 builds".to_owned(),
+        ))
+    }
+
+    pub async fn select_device() -> Result<Self> {
         Err(PowerBankError::Transport(
             "WebHID is only available for wasm32 builds".to_owned(),
         ))
