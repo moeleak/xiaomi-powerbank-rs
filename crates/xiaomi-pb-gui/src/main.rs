@@ -6,7 +6,7 @@ use iced::{
     widget::{container, image},
 };
 use iced::{Size, Subscription, Task};
-use material::widget::{button, navigation, page, progress_bar, text_input};
+use material::widget::{button, log_viewer, navigation, page, progress_bar, text_input};
 use material_ui_rs as material;
 use powerbank_core::{
     BatteryInfo, CellStatus, CellTempModel, DeviceSnapshot, HelloInfo, PowerBank, Qi2Status,
@@ -51,6 +51,7 @@ enum Message {
     RawChanged(String),
     SendRaw,
     RawLoaded(GuiResult<String>),
+    LogViewer(log_viewer::Action<u64>),
     ClearLog,
 }
 
@@ -141,7 +142,9 @@ struct App {
     qi2_notice: Option<String>,
     raw_input: String,
     raw_result: Option<String>,
-    logs: Vec<String>,
+    log_viewer: log_viewer::State<u64>,
+    logs: Vec<log_viewer::LogEntry<u64>>,
+    next_log_id: u64,
 }
 
 impl Default for App {
@@ -161,7 +164,13 @@ impl Default for App {
             qi2_notice: None,
             raw_input: "A5060100D9".to_owned(),
             raw_result: None,
-            logs: vec![platform_hint()],
+            log_viewer: log_viewer::State::new(),
+            logs: vec![log_viewer::LogEntry::new(
+                0,
+                log_viewer::LogLevel::Info,
+                format!(" {}", platform_hint()),
+            )],
+            next_log_id: 1,
         }
     }
 }
@@ -228,9 +237,25 @@ impl App {
     }
 
     fn log(&mut self, entry: impl Into<String>) {
-        self.logs.push(entry.into());
+        self.push_log(log_viewer::LogLevel::Info, entry);
+    }
+
+    fn log_warning(&mut self, entry: impl Into<String>) {
+        self.push_log(log_viewer::LogLevel::Warn, entry);
+    }
+
+    fn log_error(&mut self, entry: impl Into<String>) {
+        self.push_log(log_viewer::LogLevel::Error, entry);
+    }
+
+    fn push_log(&mut self, level: log_viewer::LogLevel, entry: impl Into<String>) {
+        let entry =
+            log_viewer::LogEntry::new(self.next_log_id, level, format!(" {}", entry.into()));
+        self.next_log_id += 1;
+        self.logs.push(entry);
         if self.logs.len() > 200 {
             self.logs.remove(0);
+            self.log_viewer.retain_entries(&self.logs);
         }
     }
 }
@@ -252,6 +277,7 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
         }
         Message::Frame(now) => {
             let _ = app.navigation.advance(now);
+            let _ = app.log_viewer.advance(now);
             if app.loading {
                 app.progress_animation.advance(now);
             }
@@ -282,7 +308,7 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
                     }
                 }
                 Err(err) => {
-                    app.log(format!("Failed to read device information: {err}"));
+                    app.log_error(format!("Failed to read device information: {err}"));
                     if app.snapshot.is_some() {
                         app.hid_session = HidSessionState::Stale;
                     }
@@ -311,7 +337,7 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
                 }
                 Err(err) => {
                     if app.hid_session == HidSessionState::Active {
-                        app.log(format!(
+                        app.log_warning(format!(
                             "HID session became inactive; cached device data was kept: {err}"
                         ));
                     }
@@ -338,7 +364,7 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
                     {
                         snapshot.qi2 = Some(status);
                     }
-                    app.log(if notice.is_some() {
+                    let message = if notice.is_some() {
                         if requested {
                             "Qi2.2 enable accepted; verification needs attention"
                         } else {
@@ -348,7 +374,12 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
                         "Qi2.2 enabled"
                     } else {
                         "Qi2.2 disabled"
-                    });
+                    };
+                    if notice.is_some() {
+                        app.log_warning(message);
+                    } else {
+                        app.log(message);
+                    }
                     app.hid_session = session;
                     app.pending_qi2 = None;
                     app.qi2_retry_required = false;
@@ -364,14 +395,14 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
                     let error = format!(
                         "{err} Press the power bank button 8 times to re-enter HID mode, then choose Reconnect and {action}."
                     );
-                    app.log(format!("Qi2.2 update failed: {error}"));
+                    app.log_error(format!("Qi2.2 update failed: {error}"));
                     app.hid_session = HidSessionState::Stale;
                     app.qi2_retry_required = true;
                     app.qi2_notice = None;
                     app.last_error = Some(error);
                 }
                 Err(Qi2Failure::Rejected(error)) => {
-                    app.log(format!("Qi2.2 update rejected: {error}"));
+                    app.log_error(format!("Qi2.2 update rejected: {error}"));
                     app.hid_session = HidSessionState::Active;
                     app.pending_qi2 = None;
                     app.qi2_retry_required = false;
@@ -379,7 +410,7 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
                     app.last_error = Some(error);
                 }
                 Err(Qi2Failure::WrongDevice(error)) => {
-                    app.log(format!("Qi2.2 update blocked: {error}"));
+                    app.log_error(format!("Qi2.2 update blocked: {error}"));
                     app.hid_session = HidSessionState::Stale;
                     app.qi2_retry_required = true;
                     app.qi2_notice = None;
@@ -416,7 +447,7 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
                     app.last_error = None;
                 }
                 Err(err) => {
-                    app.log(format!("Raw command failed: {err}"));
+                    app.log_error(format!("Raw command failed: {err}"));
                     if app.snapshot.is_some() {
                         app.hid_session = HidSessionState::Stale;
                     }
@@ -425,8 +456,10 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
             }
             Task::none()
         }
+        Message::LogViewer(action) => app.log_viewer.update(action, &app.logs),
         Message::ClearLog => {
             app.logs.clear();
+            app.log_viewer.clear_selection();
             Task::none()
         }
     }
@@ -436,7 +469,7 @@ fn subscription(app: &App) -> Subscription<Message> {
     let mut subscriptions =
         vec![iced::window::resize_events().map(|(_id, size)| Message::WindowResized(size))];
 
-    if app.navigation.is_animating() || app.loading {
+    if app.navigation.is_animating() || app.log_viewer.is_animating() || app.loading {
         subscriptions.push(iced::window::frames().map(Message::Frame));
     }
 
@@ -638,22 +671,24 @@ fn raw_page(app: &App) -> material::Element<'_, Message> {
 fn logs_page(app: &App) -> material::Element<'_, Message> {
     use material::widget::button::ButtonVariant;
 
-    let clear = button::button("Clear", ButtonVariant::Outlined).on_press(Message::ClearLog);
-    let lines = if app.logs.is_empty() {
-        vec![material::text::body_medium("No logs").into()]
+    let clear = if app.logs.is_empty() {
+        button::button("Clear", ButtonVariant::Outlined)
     } else {
-        app.logs
-            .iter()
-            .rev()
-            .map(|line| material::text::body_medium(line.clone()).into())
-            .collect::<Vec<_>>()
+        button::button("Clear", ButtonVariant::Outlined).on_press(Message::ClearLog)
     };
+    let viewer = container(
+        log_viewer::view(&app.logs, &app.log_viewer, Message::LogViewer)
+            .width(Length::Fill)
+            .height(Length::Fill),
+    )
+    .width(Length::Fill)
+    .height(Length::Fixed(620.0));
 
     page::surface(
         page::header("Logs", "Local operation log and errors"),
         page::sections([
             page::section("Actions", clear).into(),
-            page::section("Entries", page::stack(lines)).into(),
+            page::section("Entries", viewer).into(),
         ]),
     )
     .into()
@@ -1511,7 +1546,7 @@ mod tests {
         assert!(
             app.logs
                 .iter()
-                .any(|line| line == "Reading device information")
+                .any(|entry| entry.message() == " Reading device information")
         );
     }
 

@@ -1924,9 +1924,9 @@ dependencies = [
 
 [[package]]
 name = "material-ui-rs"
-version = "0.4.3"
+version = "0.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cd2f7c69b4d1705ef13a29821dd9e32e993c9e20897661127c6c11b7a508f142"
+checksum = "dd48b58a7cf917bffe51fd2ef98f754cfda4c52d43cb76c3a98e478a00e3bc21"
 dependencies = [
  "iced",
  "iced_widget",

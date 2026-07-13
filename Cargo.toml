@@ -26,7 +26,7 @@ hex = "0.4"
 hidapi = "2.6.6"
 iced = "0.14"
 js-sys = "0.3.103"
-material-ui-rs = { version = "0.4.3", default-features = false, features = ["canvas", "svg", "crisp"] }
+material-ui-rs = { version = "0.4.4", default-features = false, features = ["canvas", "svg", "crisp"] }
 owo-colors = "4.2"
 powerbank-core = { path = "crates/powerbank-core" }
 powerbank-hid = { path = "crates/powerbank-hid" }
